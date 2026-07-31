@@ -1,5 +1,5 @@
 const DB_NAME = 'ubet-telemetry';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORE_BETS = 'bets';
 const STORE_RAW = 'raw';
 const STORE_META = 'meta';
@@ -10,13 +10,26 @@ function openDb() {
   if (dbPromise) return dbPromise;
   dbPromise = new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
-    req.onupgradeneeded = () => {
+    req.onupgradeneeded = (event) => {
       const db = req.result;
+      let bets;
       if (!db.objectStoreNames.contains(STORE_BETS)) {
-        const bets = db.createObjectStore(STORE_BETS, { keyPath: 'betId' });
+        bets = db.createObjectStore(STORE_BETS, { keyPath: 'betId' });
         bets.createIndex('sessionId', 'sessionId');
         bets.createIndex('submittedAt', 'submittedAt');
         bets.createIndex('game', 'game');
+      } else {
+        bets = req.transaction.objectStore(STORE_BETS);
+      }
+      // v2: chain order must be true insertion order, not submittedAt.
+      // submittedAt is bet-placement time, not append time — a bet held up
+      // waiting for its animation timestamp can legitimately get appended
+      // after a later, faster-flushing bet, which broke the hash chain when
+      // "highest submittedAt seen" was used as a stand-in for "last
+      // inserted." `seq` is assigned explicitly in background.js, inside its
+      // serialized append queue, so it's an unambiguous insertion order.
+      if (event.oldVersion < 2 && !bets.indexNames.contains('seq')) {
+        bets.createIndex('seq', 'seq', { unique: true });
       }
       if (!db.objectStoreNames.contains(STORE_RAW)) {
         const raw = db.createObjectStore(STORE_RAW, { keyPath: 'seq', autoIncrement: true });
@@ -81,9 +94,12 @@ export async function setMeta(key, value) {
   return reqToPromise(tx(db, STORE_META, 'readwrite').put({ key, value }));
 }
 
+// "Last" means most recently appended (highest seq), not latest submittedAt
+// — those are different things once bets can flush out of chronological
+// order (see the v2 migration note above).
 export async function getLastBetRecord() {
   const db = await openDb();
-  const store = tx(db, STORE_BETS, 'readonly').index('submittedAt');
+  const store = tx(db, STORE_BETS, 'readonly').index('seq');
   return new Promise((resolve, reject) => {
     const req = store.openCursor(null, 'prev');
     req.onsuccess = () => resolve(req.result ? req.result.value : null);

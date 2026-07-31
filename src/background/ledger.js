@@ -20,11 +20,15 @@ export async function sha256Hex(input) {
 // Builds an immutable, chained BetRecordV1 from a normalized capture plus
 // the previous record's hash. The chain lets an export be checked for
 // tampering or gaps after the fact: recompute each hash and compare.
-export async function buildRecord(normalized, previousRecordHash) {
+export async function buildRecord(normalized, previousRecordHash, seq) {
   const rawEventHash = await sha256Hex(canonicalize(normalized.rawEvent ?? null));
 
   const record = {
     schemaVersion: SCHEMA_VERSION,
+    // Monotonic insertion order — the true chain order. Deliberately
+    // separate from submittedAt, which is bet-placement time and can arrive
+    // out of order relative to when a bet actually finishes being appended.
+    seq,
     betId: normalized.betId,
     sessionId: normalized.sessionId,
     site: normalized.site,

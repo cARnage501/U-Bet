@@ -9,6 +9,7 @@
 const RTP_WINDOWS = [25, 100, 500, 1000];
 
 const DATA_DICTIONARY = {
+  seq: 'Monotonic ledger insertion order. This is the true hash-chain order — it can differ from submittedAt order when a bet is held up awaiting its animation timestamp while a later bet flushes first.',
   betId: 'Unique identifier for the bet (from the site, or synthesized if none was found).',
   sessionId: 'Local identifier grouping bets from one continuous play session (resets after 30 minutes idle).',
   site: 'Hostname the bet was captured on.',

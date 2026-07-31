@@ -34,7 +34,8 @@ function appendBetRecord(normalized) {
   const result = chainQueue.then(async () => {
     const last = await db.getLastBetRecord();
     const previousRecordHash = last ? await sha256Hex(canonicalize(last)) : null;
-    const record = await buildRecord(normalized, previousRecordHash);
+    const seq = last ? last.seq + 1 : 0;
+    const record = await buildRecord(normalized, previousRecordHash, seq);
     await db.addBetRecord(record);
     return record;
   });
@@ -92,8 +93,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         break;
       }
       case 'UBET_VERIFY_CHAIN': {
+        // Chain order is insertion order (seq), not submittedAt — see the
+        // v2 migration note in db.js for why those two can diverge.
         const bets = await db.getAllBets();
-        bets.sort((a, b) => a.submittedAt - b.submittedAt);
+        bets.sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
         sendResponse(await verifyChain(bets));
         break;
       }
