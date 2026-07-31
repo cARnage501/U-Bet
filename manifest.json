@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "U-Bet Telemetry",
+  "version": "0.1.0",
+  "description": "Read-only capture, ledger, and dashboard for your own stake.us bet history. Records timing, wagers, and outcomes locally — never modifies requests.",
+  "permissions": ["storage", "unlimitedStorage"],
+  "host_permissions": [
+    "https://stake.us/*",
+    "https://*.stake.us/*"
+  ],
+  "background": {
+    "service_worker": "src/background/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://stake.us/*", "https://*.stake.us/*"],
+      "js": ["src/content/inject.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://stake.us/*", "https://*.stake.us/*"],
+      "js": ["src/content/content.js"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
