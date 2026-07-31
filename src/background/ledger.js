@@ -20,11 +20,15 @@ export async function sha256Hex(input) {
 // Builds an immutable, chained BetRecordV1 from a normalized capture plus
 // the previous record's hash. The chain lets an export be checked for
 // tampering or gaps after the fact: recompute each hash and compare.
-export async function buildRecord(normalized, previousRecordHash) {
+export async function buildRecord(normalized, previousRecordHash, seq) {
   const rawEventHash = await sha256Hex(canonicalize(normalized.rawEvent ?? null));
 
   const record = {
     schemaVersion: SCHEMA_VERSION,
+    // Monotonic insertion order — the true chain order. Deliberately
+    // separate from submittedAt, which is bet-placement time and can arrive
+    // out of order relative to when a bet actually finishes being appended.
+    seq,
     betId: normalized.betId,
     sessionId: normalized.sessionId,
     site: normalized.site,
@@ -34,8 +38,11 @@ export async function buildRecord(normalized, previousRecordHash) {
     resultNumbers: normalized.resultNumbers ?? [],
     wager: normalized.wager ?? null,
     payout: normalized.payout ?? null,
+    // Full precision, not rounded to cents: stake.us pays out in sub-cent
+    // amounts, and rounding here would make per-record net stop summing to
+    // the same total as recomputing it fresh. Round only at display time.
     net: normalized.wager != null && normalized.payout != null
-      ? round2(normalized.payout - normalized.wager)
+      ? cleanFloat(normalized.payout - normalized.wager)
       : null,
     balanceBefore: normalized.balanceBefore ?? null,
     balanceAfter: normalized.balanceAfter ?? null,
@@ -49,6 +56,9 @@ export async function buildRecord(normalized, previousRecordHash) {
     animationDurationMs: normalized.animationFinishedAt != null && normalized.animationStartedAt != null
       ? normalized.animationFinishedAt - normalized.animationStartedAt
       : null,
+    // How animationFinishedAt was determined. Kept alongside the duration so
+    // clean measurements and bounded estimates never get pooled by accident.
+    animationTimingQuality: normalized.animationTimingQuality ?? null,
     rawEventHash,
     previousRecordHash: previousRecordHash ?? null,
   };
@@ -56,8 +66,10 @@ export async function buildRecord(normalized, previousRecordHash) {
   return record;
 }
 
-function round2(n) {
-  return Math.round(n * 100) / 100;
+// Rounds away binary floating-point noise (e.g. 0.013999999999999999) without
+// destroying real sub-cent precision the way rounding to 2 decimals would.
+function cleanFloat(n) {
+  return Math.round(n * 1e8) / 1e8;
 }
 
 // Recomputes the chain over an exported record array and reports the first

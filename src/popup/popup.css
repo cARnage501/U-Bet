@@ -102,5 +102,12 @@ footer {
   margin-top: 10px;
   font-size: 10px;
   color: #6b7f8f;
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+footer .version {
+  font-variant-numeric: tabular-nums;
+  color: #566573;
 }

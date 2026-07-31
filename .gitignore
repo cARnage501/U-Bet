@@ -1,0 +1,7 @@
+# Exported telemetry never belongs in this repo — betting history, wager
+# sizes, and session timing are personal data. This is a backstop in case
+# an export ever lands in the working tree; it should never need to fire.
+ubet-*.json
+ubet-*.csv
+ubet-*.md
+*.ubet-export.*

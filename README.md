@@ -20,6 +20,18 @@ and appends them to a local, hash-chained ledger.
 Requires Chrome 111+ (uses `"world": "MAIN"` content scripts, no injected `<script>` tag hack
 needed).
 
+## Versioning
+
+The version in `manifest.json` is bumped on every functional change, and shown in the popup
+footer and dashboard header, so the build actually loaded in Chrome can always be matched against
+what's in the repo. After pulling changes, reload the extension at `chrome://extensions` and
+confirm the version shown there matches `manifest.json` — a stale loaded build otherwise looks
+identical to a current one.
+
+Every export also carries an `extensionVersion` field. Check it before treating an anomaly in
+older capture data as real signal; it may be a bug a later version fixed. See `CHANGELOG.md` for
+what each version changed.
+
 ## Architecture
 
 ```
@@ -57,7 +69,12 @@ verified against live stake.us traffic. Before relying on the numbers:
 3. Update `FIELD_CANDIDATES` in `content.js` to include those field names if they differ from the
    guesses already listed.
 4. Watch the page during a bet to see what CSS class actually gets added/removed during the result
-   animation, and tighten `ANIMATION_START_CLASS_RE` / `ANIMATION_END_CLASS_RE` accordingly.
+   animation, and tighten `ANIMATION_START_CLASS_RE` / `ANIMATION_END_CLASS_RE` accordingly. Until
+   the end-class regex is tuned, `content.js` falls back to a "DOM went quiet for 500ms" heuristic
+   to fill in `animationFinishedAt` — real, but noisier than a real end-class match on a page with
+   a live bet feed / chat / stats ticker that mutates the DOM outside the game area. If that proves
+   too noisy in practice, narrow the `observer.observe(...)` root in `startObserving()` from
+   `document.body` down to the actual game container once you've identified its selector.
 5. Cross-check 100 or so bets by hand against the dashboard before trusting `animationDurationMs`
    for anything.
 

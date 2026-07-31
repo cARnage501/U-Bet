@@ -21,7 +21,12 @@ function renderSummary(stats, chain) {
     ['Total net', stats.totalNet ?? '–'],
     ['Overall RTP', stats.overallRtpPercent != null ? `${stats.overallRtpPercent}%` : '–'],
     ['Avg server latency', stats.serverLatencyMs.mean != null ? `${stats.serverLatencyMs.mean} ms` : '–'],
-    ['Avg animation duration', stats.animationDurationMs.mean != null ? `${stats.animationDurationMs.mean} ms` : '–'],
+    // Sample count is shown alongside the mean because measured coverage is
+    // partial by nature — a mean over a handful of bets reads very
+    // differently from one over hundreds, and that context is easy to lose.
+    ['Avg animation duration', stats.animationDurationMs.mean != null
+      ? `${stats.animationDurationMs.mean} ms <span class="qualifier">(${stats.animationDurationMs.sampleCount} measured)</span>`
+      : '–'],
     ['Ledger chain', chain.valid ? 'intact' : `broken @${chain.brokenAtIndex}`],
   ];
   const el = document.getElementById('summary');
@@ -29,6 +34,11 @@ function renderSummary(stats, chain) {
     .map(([label, value]) => `<div class="stat"><span class="value">${value}</span><span class="label">${label}</span></div>`)
     .join('');
 }
+
+// Only measured durations belong on the timing scatters — plotting bounded
+// 'superseded' estimates there would put artefacts of fast play into charts
+// meant to show real animation behaviour.
+const MEASURED = new Set(['tile-cascade']);
 
 function renderCharts(records, stats, threshold) {
   const sorted = [...records].sort((a, b) => a.submittedAt - b.submittedAt);
@@ -49,7 +59,7 @@ function renderCharts(records, stats, threshold) {
   renderScatter(document.getElementById('chartWagerNet'), wagerNetPoints, { xLabel: 'wager', yLabel: 'net' });
 
   const balanceAnimPoints = sorted
-    .filter((r) => r.balanceBefore != null && r.animationDurationMs != null)
+    .filter((r) => r.balanceBefore != null && r.animationDurationMs != null && MEASURED.has(r.animationTimingQuality))
     .map((r) => ({ x: r.balanceBefore, y: r.animationDurationMs }));
   renderScatter(document.getElementById('chartBalanceAnimation'), balanceAnimPoints, {
     xLabel: 'balance before',
@@ -59,7 +69,7 @@ function renderCharts(records, stats, threshold) {
   });
 
   const latencyAnimPoints = sorted
-    .filter((r) => r.serverLatencyMs != null && r.animationDurationMs != null)
+    .filter((r) => r.serverLatencyMs != null && r.animationDurationMs != null && MEASURED.has(r.animationTimingQuality))
     .map((r) => ({ x: r.serverLatencyMs, y: r.animationDurationMs }));
   renderScatter(document.getElementById('chartLatencyAnimation'), latencyAnimPoints, { xLabel: 'server latency ms', yLabel: 'animation ms' });
 
@@ -72,6 +82,10 @@ function renderCharts(records, stats, threshold) {
 
 function renderRawTable(rawEvents) {
   const tbody = document.querySelector('#rawTable tbody');
+  // Rebuilding the rows resets scroll position, which on a 1s auto-refresh
+  // would yank the view out from under anyone reading the log.
+  const wrap = document.querySelector('.table-wrap');
+  const scrollTop = wrap ? wrap.scrollTop : 0;
   tbody.innerHTML = rawEvents
     .slice()
     .reverse()
@@ -81,6 +95,7 @@ function renderRawTable(rawEvents) {
       return `<tr><td>${new Date(e.capturedAt).toLocaleTimeString()}</td><td>${e.channel}</td><td title="${escapeHtml(e.url)}">${escapeHtml(shorten(e.url))}</td><td>${escapeHtml(preview)}</td></tr>`;
     })
     .join('');
+  if (wrap) wrap.scrollTop = scrollTop;
 }
 
 function shorten(url) {
@@ -96,23 +111,93 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-async function refresh() {
-  const [records, rawEvents, chain] = await Promise.all([
-    sendMessage({ type: 'UBET_GET_BETS' }).then((r) => r || []),
-    sendMessage({ type: 'UBET_GET_RAW', limit: 200 }).then((r) => r || []),
-    sendMessage({ type: 'UBET_VERIFY_CHAIN' }),
-  ]);
-  const stats = computeStats(records);
-  const threshold = await getThreshold();
+const AUTO_REFRESH_MS = 1000;
 
-  renderSummary(stats, chain);
-  renderCharts(records, stats, threshold);
-  renderRawTable(rawEvents);
+let refreshInFlight = null;
+let lastRenderSignature = null;
+let lastChainResult = { valid: true };
+let lastChainBetCount = -1;
+let latest = { records: [], stats: null };
 
-  return { records, stats };
+// Cheap stand-in for "did anything actually change". Both stores are
+// append-only, so a count plus the newest key is enough to tell.
+function dataSignature(records, rawEvents) {
+  const lastBet = records.length ? records[records.length - 1] : null;
+  const lastRaw = rawEvents.length ? rawEvents[rawEvents.length - 1] : null;
+  return [records.length, lastBet ? lastBet.seq ?? lastBet.betId : '', rawEvents.length, lastRaw ? lastRaw.seq ?? '' : ''].join('|');
 }
 
-document.getElementById('refresh').addEventListener('click', refresh);
+function refresh({ force = false } = {}) {
+  // A tick that lands while the previous one is still awaiting the service
+  // worker would queue up behind it and, on a slow read, snowball. Callers
+  // get the in-flight promise rather than a stale snapshot, so an export
+  // clicked mid-tick still resolves against real data instead of whatever
+  // was last rendered (or, on first load, an empty set).
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = doRefresh({ force }).finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function doRefresh({ force }) {
+  const [records, rawEvents] = await Promise.all([
+    sendMessage({ type: 'UBET_GET_BETS' }).then((r) => r || []),
+    sendMessage({ type: 'UBET_GET_RAW', limit: 200 }).then((r) => r || []),
+  ]);
+
+  // Chain verification re-hashes every record, so it runs only when the bet
+  // count actually moved rather than on every tick — at a few thousand
+  // records, hashing the whole ledger once a second would dominate the CPU.
+  if (force || records.length !== lastChainBetCount) {
+    lastChainResult = await sendMessage({ type: 'UBET_VERIFY_CHAIN' });
+    lastChainBetCount = records.length;
+  }
+
+  const stats = computeStats(records);
+  latest = { records, stats };
+
+  const signature = dataSignature(records, rawEvents);
+  if (force || signature !== lastRenderSignature) {
+    lastRenderSignature = signature;
+    const threshold = await getThreshold();
+    renderSummary(stats, lastChainResult);
+    renderCharts(records, stats, threshold);
+    renderRawTable(rawEvents);
+  }
+
+  return latest;
+}
+
+// Polling a hidden tab burns CPU for nothing; catch up on the way back.
+function startAutoRefresh() {
+  const indicator = document.getElementById('liveIndicator');
+  const syncIndicator = () => {
+    if (!indicator) return;
+    indicator.classList.toggle('paused', document.hidden);
+    indicator.textContent = document.hidden ? 'paused' : 'live';
+  };
+
+  setInterval(() => {
+    if (!document.hidden) refresh();
+  }, AUTO_REFRESH_MS);
+
+  document.addEventListener('visibilitychange', () => {
+    syncIndicator();
+    if (!document.hidden) refresh();
+  });
+
+  syncIndicator();
+}
+
+// Surfaced so the build actually running in the browser can be compared at a
+// glance against what's checked out — a stale loaded extension otherwise looks
+// identical to a fresh one.
+document.getElementById('versionLabel').textContent = `v${chrome.runtime.getManifest().version}`;
+
+// Manual actions force a render: the signature check can't see a changed
+// threshold, and an explicit click should always visibly do something.
+document.getElementById('refresh').addEventListener('click', () => refresh({ force: true }));
 
 document.getElementById('exportJson').addEventListener('click', async () => {
   const { records } = await refresh();
@@ -138,7 +223,7 @@ document.getElementById('clearAll').addEventListener('click', async () => {
   const confirmed = confirm('This permanently deletes all locally stored bet telemetry. Export first if you want to keep it. Continue?');
   if (!confirmed) return;
   await sendMessage({ type: 'UBET_CLEAR_ALL', confirm: 'WIPE_LOCAL_DATA' });
-  refresh();
+  refresh({ force: true });
 });
 
 const thresholdInput = document.getElementById('withdrawalThreshold');
@@ -148,7 +233,8 @@ getThreshold().then((v) => {
 thresholdInput.addEventListener('change', async () => {
   const v = thresholdInput.value === '' ? null : Number(thresholdInput.value);
   await chrome.storage.local.set({ withdrawalThreshold: v });
-  refresh();
+  refresh({ force: true });
 });
 
-refresh();
+refresh({ force: true });
+startAutoRefresh();
