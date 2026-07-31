@@ -21,24 +21,75 @@ const FIELD_CANDIDATES = {
   result: ['result', 'rolled', 'drawnNumbers', 'outcomeNumbers', 'resultNumbers'],
 };
 
-// DOM heuristics for animation timing. These selectors are placeholders —
-// step 3 of the build order ("verify 100 bets manually") means watching the
-// dashboard's raw event log next to the live page and tightening these.
-const ANIMATION_START_CLASS_RE = /animat|reveal|spinn|roll(ing)?/i;
-const ANIMATION_END_CLASS_RE = /settle|complete|idle|done|finished/i;
+// Animation timing is anchored to stake.us's own state attribute, verified by
+// observing a live reveal over CDP. Each keno tile carries
+// data-game-tile-status, and a reveal walks the tiles in a staggered cascade:
+//
+//   hidden   -> revealed   (a drawn number the player did not pick)
+//   selected -> match      (a drawn number the player did pick)
+//
+// One observed reveal: 10 tiles over 1349ms at a ~150ms per-tile stagger.
+// That stagger is why raw onset deltas cluster near multiples of 150ms.
+//
+// This replaces an earlier className regex that matched `roll(ing)?` — which
+// also matches the "roll" inside `scrollY`, so every scroll container on the
+// page was stamping animationStartedAt with unrelated mutations. Anchoring on
+// the game's own status attribute removes that whole class of false positive.
+const TILE_SELECTOR = '[data-testid^="game-tile-"]';
+const TILE_STATUS_ATTR = 'data-game-tile-status';
+const REVEAL_STATUSES = new Set(['revealed', 'match']);
+
+// The rendered wallet balance. The websocket carries `availableBalances.amount`
+// but that appeared to be a delta, whereas this element holds the absolute
+// figure the player actually sees.
+const BALANCE_SELECTOR = '[data-testid="coin-toggle"]';
+
 const PENDING_BET_TIMEOUT_MS = 20000;
 
-// Fallback for when ANIMATION_END_CLASS_RE never matches the live site's
-// actual markup (confirmed happening in practice: animationFinishedAt was
-// null on every real-world record). Once the animation has visibly started,
-// treat a stretch of DOM quiet as "the reveal settled."
+// A reveal is a staggered cascade, so "finished" is the point where tiles stop
+// flipping. Comfortably longer than the observed ~150ms inter-tile gap so the
+// gaps within one cascade are never mistaken for the end of it.
 const ANIMATION_QUIET_PERIOD_MS = 500;
 
-let lastKnownBalance = null;
 let pendingBet = null;
 let pendingTimer = null;
 let quietTimer = null;
-let lastMutationAt = null;
+let lastRevealAt = null;
+
+// Short history of observed wallet balances, so a bet can be matched to the
+// balance immediately before and after it rather than whatever happens to be
+// on screen when the record is finalized.
+const BALANCE_HISTORY_LIMIT = 40;
+const balanceHistory = [];
+
+function parseBalance(text) {
+  if (!text) return null;
+  const m = String(text).replace(/,/g, '').match(/[0-9]*\.?[0-9]+/);
+  return m ? Number(m[0]) : null;
+}
+
+function recordBalance(value) {
+  if (value == null || Number.isNaN(value)) return;
+  const last = balanceHistory[balanceHistory.length - 1];
+  if (last && last.value === value) return;
+  balanceHistory.push({ at: Date.now(), value });
+  if (balanceHistory.length > BALANCE_HISTORY_LIMIT) balanceHistory.shift();
+}
+
+function readBalanceNow() {
+  const el = document.querySelector(BALANCE_SELECTOR);
+  if (el) recordBalance(parseBalance(el.textContent));
+}
+
+// Last balance observed at or before `t`; null if we hadn't seen one yet.
+function balanceAsOf(t) {
+  let found = null;
+  for (const entry of balanceHistory) {
+    if (entry.at <= t) found = entry.value;
+    else break;
+  }
+  return found;
+}
 
 function findField(obj, names, depth = 0, seen = new Set()) {
   if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj)) return undefined;
@@ -120,7 +171,10 @@ function classifyNetworkEvent(evt) {
     resultNumbers: toNumberArray(findField(responseJson, FIELD_CANDIDATES.result)),
     wager,
     payout,
-    balanceBefore: lastKnownBalance,
+    // Both are filled from the rendered wallet in handleNetworkEvent; any
+    // payload-derived figure is only a fallback, since the field spotted in
+    // the websocket stream (availableBalances.amount) looked like a delta.
+    balanceBefore: null,
     balanceAfter: balanceAfter ?? null,
     submittedAt: evt.submittedAt || evt.respondedAt,
     serverResultAt: evt.respondedAt,
@@ -139,6 +193,12 @@ function flushPendingBet(quality) {
   if (!pendingBet) return;
   if (quality && pendingBet.animationTimingQuality === null) {
     pendingBet.animationTimingQuality = quality;
+  }
+  // Resolved at flush time so the post-bet wallet update has had a chance to
+  // land; balanceBefore still reads from the moment the bet was submitted.
+  readBalanceNow();
+  if (pendingBet.balanceAfter == null) {
+    pendingBet.balanceAfter = balanceHistory.length ? balanceHistory[balanceHistory.length - 1].value : null;
   }
   sendToBackground(pendingBet);
   pendingBet = null;
@@ -159,8 +219,8 @@ function scheduleQuietCheck() {
     // Guard against a stale timer firing after `bet` was already flushed
     // and pendingBet reassigned to a different, newer bet.
     if (pendingBet === bet && bet.animationStartedAt !== null && bet.animationFinishedAt === null) {
-      bet.animationFinishedAt = lastMutationAt;
-      flushPendingBet('quiet-period');
+      bet.animationFinishedAt = lastRevealAt;
+      flushPendingBet('tile-cascade');
     }
   }, ANIMATION_QUIET_PERIOD_MS);
 }
@@ -183,30 +243,33 @@ function handleNetworkEvent(evt) {
     return;
   }
 
-  if (normalized.balanceAfter !== null) lastKnownBalance = normalized.balanceAfter;
-
   // A new bet arrives while the previous one is still awaiting its animation
   // end. Measured against real play, this was losing timing on ~54% of bets:
   // a full reveal needs roughly server latency + animation + the quiet period
   // (~2.8s, up to ~3.4s) to resolve, and anything placed faster than that
   // superseded the pending bet before its quiet timer could fire.
   //
-  // Visually the new bet's reveal replaces the old one, so the last mutation
-  // observed before this bet arrived bounds when the old animation ended.
-  // That's an estimate, not a clean measurement, so it's tagged as such —
-  // estimates must never silently pool with measured values in the stats.
+  // Visually the new bet's reveal replaces the old one, so the last tile flip
+  // seen before this bet arrived bounds when the old animation ended. That's
+  // an estimate, not a clean measurement, so it's tagged as such — estimates
+  // must never silently pool with measured values in the stats.
   if (pendingBet) {
-    if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && lastMutationAt !== null) {
-      pendingBet.animationFinishedAt = lastMutationAt;
+    if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && lastRevealAt !== null) {
+      pendingBet.animationFinishedAt = lastRevealAt;
       flushPendingBet('superseded');
     } else {
       flushPendingBet('interrupted');
     }
   }
 
-  lastMutationAt = null;
+  lastRevealAt = null;
+  readBalanceNow();
   pendingBet = {
     ...normalized,
+    // Prefer the rendered wallet figure, which is absolute, over anything
+    // guessed out of the payload.
+    balanceBefore: balanceAsOf(normalized.submittedAt) ?? normalized.balanceBefore ?? null,
+    balanceAfter: null,
     animationStartedAt: null,
     animationFinishedAt: null,
     animationTimingQuality: null,
@@ -216,40 +279,53 @@ function handleNetworkEvent(evt) {
 
 window.addEventListener('ubet:network', (event) => handleNetworkEvent(event.detail));
 
-// --- DOM animation timing ---
-const observer = new MutationObserver((mutations) => {
+// --- DOM animation timing, anchored to the tiles' own status attribute ---
+const tileObserver = new MutationObserver((mutations) => {
   if (!pendingBet) return;
 
+  let sawReveal = false;
   for (const m of mutations) {
-    if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
+    if (m.type !== 'attributes' || m.attributeName !== TILE_STATUS_ATTR) continue;
     const target = m.target;
-    if (!(target instanceof Element)) continue;
-    const classes = typeof target.className === 'string' ? target.className : '';
+    if (!(target instanceof Element) || !target.matches(TILE_SELECTOR)) continue;
+    if (!REVEAL_STATUSES.has(target.getAttribute(TILE_STATUS_ATTR))) continue;
 
-    if (pendingBet.animationStartedAt === null && ANIMATION_START_CLASS_RE.test(classes)) {
-      pendingBet.animationStartedAt = Date.now();
-    } else if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && ANIMATION_END_CLASS_RE.test(classes)) {
-      pendingBet.animationFinishedAt = Date.now();
-      flushPendingBet('class-matched');
-      return;
-    }
+    sawReveal = true;
+    if (pendingBet.animationStartedAt === null) pendingBet.animationStartedAt = Date.now();
   }
 
-  // No recognized "finished" class this batch. As long as the reveal has
-  // started, keep pushing the quiet-period fallback out on every mutation;
-  // it fires once the DOM actually stops changing.
-  if (pendingBet && pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null) {
-    lastMutationAt = Date.now();
-    scheduleQuietCheck();
-  }
+  if (!sawReveal) return;
+
+  // Each tile in the cascade extends the reveal; the last one to flip is the
+  // end of it, confirmed once no further tile turns over for the quiet period.
+  lastRevealAt = Date.now();
+  scheduleQuietCheck();
 });
 
+// Balance is tracked continuously rather than sampled per bet: the wallet can
+// update slightly before or after the bet's network response lands, so a
+// timestamped history is what lets before/after be attributed correctly.
+const balanceObserver = new MutationObserver(() => readBalanceNow());
+
 function startObserving() {
-  if (document.body) {
-    observer.observe(document.body, { subtree: true, attributes: true, childList: true, characterData: true });
-  } else {
+  if (!document.body) {
     document.addEventListener('DOMContentLoaded', startObserving, { once: true });
+    return;
   }
+
+  tileObserver.observe(document.body, {
+    subtree: true,
+    attributes: true,
+    attributeFilter: [TILE_STATUS_ATTR],
+  });
+
+  balanceObserver.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+  });
+
+  readBalanceNow();
 }
 
 startObserving();

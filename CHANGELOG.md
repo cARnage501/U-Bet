@@ -8,6 +8,39 @@ Every export also carries an `extensionVersion` field — check it before
 treating an anomaly in old capture data as real signal, since it may be a bug
 that a later version fixed.
 
+## 0.4.0
+
+Inspected the live logged-in page over CDP and found that the animation
+detection had been anchored to noise the whole time.
+
+- **The reveal detector was matching scroll containers.** The start regex was
+  `/animat|reveal|spinn|roll(ing)?/i`, and `roll(ing)?` matches the "roll"
+  inside `scrollY`. Every scroll container on the page satisfied it, so
+  `animationStartedAt` was stamped by unrelated mutations rather than the game
+  reveal. Every duration recorded before this version is therefore suspect,
+  even though the values looked plausible.
+- **The end pattern never could have matched.** Tiles do not use
+  `settle`/`complete`/`done` classes; they carry `data-game-tile-status`, which
+  the observer ignored entirely because it only inspected `class`.
+
+Timing is now anchored to the game's own state attribute. A reveal walks the
+tiles in a staggered cascade — `hidden -> revealed` for a drawn number, and
+`selected -> match` for one the player picked. One observed reveal ran 10 tiles
+over 1349 ms at roughly 150 ms per tile, which is what produced the ~150 ms
+onset clustering noticed earlier. Start is the first tile flip, end is the last.
+Measured records are tagged `tile-cascade`.
+
+- **Balance capture now works.** The websocket field spotted earlier
+  (`availableBalances.amount`) carries a delta, so it was never safe to store as
+  a balance. The rendered wallet at `[data-testid="coin-toggle"]` holds the
+  absolute figure instead. Balances are tracked as a timestamped history so a
+  bet can be matched to the values immediately before and after it, rather than
+  whatever happens to be on screen when the record is finalized. This unblocks
+  the balance-vs-animation-duration chart.
+
+Verified against the live DOM: 40 tiles resolve, the tile selector matches
+mutation targets, and the wallet element parses cleanly.
+
 ## 0.3.0
 
 Verified 0.2.0 against a live 85-bet session: ledger chain read intact, no

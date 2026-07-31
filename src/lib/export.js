@@ -20,15 +20,15 @@ const DATA_DICTIONARY = {
   wager: 'Amount staked on this bet, in the site\'s displayed currency unit.',
   payout: 'Amount returned for this bet (0 on a loss).',
   net: 'payout - wager.',
-  balanceBefore: 'Account balance immediately before this bet, when known.',
-  balanceAfter: 'Account balance immediately after this bet, when known.',
+  balanceBefore: 'Wallet balance read from the page immediately before this bet, when known.',
+  balanceAfter: 'Wallet balance read from the page once this bet settled, when known.',
   submittedAt: 'Unix ms timestamp when the bet request was sent.',
   serverResultAt: 'Unix ms timestamp when the server response arrived.',
-  animationStartedAt: 'Unix ms timestamp when the result animation was observed starting in the DOM.',
-  animationFinishedAt: 'Unix ms timestamp when the result animation was observed finishing.',
+  animationStartedAt: 'Unix ms timestamp of the first game tile flipping to a revealed state (data-game-tile-status becoming "revealed" or "match").',
+  animationFinishedAt: 'Unix ms timestamp of the last tile flip in the reveal cascade.',
   serverLatencyMs: 'serverResultAt - submittedAt: pure network/server time.',
-  animationDurationMs: 'animationFinishedAt - animationStartedAt: client-side reveal time.',
-  animationTimingQuality: 'How animationFinishedAt was determined. "class-matched" and "quiet-period" are measured. "superseded" is a bounded estimate — the next bet arrived before this reveal finished, so the last observed DOM mutation was used as the end bound; treat as an upper-bound-ish approximation, not a measurement. "interrupted"/"timeout" mean no end was observed and animationDurationMs is null.',
+  animationDurationMs: 'animationFinishedAt - animationStartedAt: client-side reveal time, spanning the full staggered tile cascade (~150ms per tile as observed).',
+  animationTimingQuality: 'How animationFinishedAt was determined. "tile-cascade" is a measurement: the reveal ran to completion and the last tile flip was observed. "superseded" is a bounded estimate — the next bet arrived before this reveal finished, so the last tile flip seen is used as the end bound; treat as approximate, not measured. "interrupted"/"timeout" mean no reveal end was observed and animationDurationMs is null.',
   rawEventHash: 'SHA-256 of the canonicalized raw captured network event backing this record.',
   previousRecordHash: 'SHA-256 of the prior record in the ledger (hash chain; null for the first record).',
 };
@@ -64,7 +64,7 @@ export function computeStats(records) {
   // cut short by the next bet, not clean measurements. Headline animation
   // stats use measured values only; estimates are reported separately so a
   // fast-play stretch can't quietly drag the mean around.
-  const MEASURED_QUALITY = new Set(['class-matched', 'quiet-period']);
+  const MEASURED_QUALITY = new Set(['tile-cascade']);
   const withDuration = sorted.filter((r) => r.animationDurationMs != null);
   const animations = withDuration
     .filter((r) => MEASURED_QUALITY.has(r.animationTimingQuality))

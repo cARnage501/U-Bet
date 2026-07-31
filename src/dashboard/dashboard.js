@@ -38,7 +38,7 @@ function renderSummary(stats, chain) {
 // Only measured durations belong on the timing scatters — plotting bounded
 // 'superseded' estimates there would put artefacts of fast play into charts
 // meant to show real animation behaviour.
-const MEASURED = new Set(['class-matched', 'quiet-period']);
+const MEASURED = new Set(['tile-cascade']);
 
 function renderCharts(records, stats, threshold) {
   const sorted = [...records].sort((a, b) => a.submittedAt - b.submittedAt);
