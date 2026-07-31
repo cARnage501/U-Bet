@@ -34,8 +34,11 @@ export async function buildRecord(normalized, previousRecordHash) {
     resultNumbers: normalized.resultNumbers ?? [],
     wager: normalized.wager ?? null,
     payout: normalized.payout ?? null,
+    // Full precision, not rounded to cents: stake.us pays out in sub-cent
+    // amounts, and rounding here would make per-record net stop summing to
+    // the same total as recomputing it fresh. Round only at display time.
     net: normalized.wager != null && normalized.payout != null
-      ? round2(normalized.payout - normalized.wager)
+      ? cleanFloat(normalized.payout - normalized.wager)
       : null,
     balanceBefore: normalized.balanceBefore ?? null,
     balanceAfter: normalized.balanceAfter ?? null,
@@ -56,8 +59,10 @@ export async function buildRecord(normalized, previousRecordHash) {
   return record;
 }
 
-function round2(n) {
-  return Math.round(n * 100) / 100;
+// Rounds away binary floating-point noise (e.g. 0.013999999999999999) without
+// destroying real sub-cent precision the way rounding to 2 decimals would.
+function cleanFloat(n) {
+  return Math.round(n * 1e8) / 1e8;
 }
 
 // Recomputes the chain over an exported record array and reports the first

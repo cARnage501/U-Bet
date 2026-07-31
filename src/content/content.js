@@ -28,9 +28,17 @@ const ANIMATION_START_CLASS_RE = /animat|reveal|spinn|roll(ing)?/i;
 const ANIMATION_END_CLASS_RE = /settle|complete|idle|done|finished/i;
 const PENDING_BET_TIMEOUT_MS = 20000;
 
+// Fallback for when ANIMATION_END_CLASS_RE never matches the live site's
+// actual markup (confirmed happening in practice: animationFinishedAt was
+// null on every real-world record). Once the animation has visibly started,
+// treat a stretch of DOM quiet as "the reveal settled."
+const ANIMATION_QUIET_PERIOD_MS = 500;
+
 let lastKnownBalance = null;
 let pendingBet = null;
 let pendingTimer = null;
+let quietTimer = null;
+let lastMutationAt = null;
 
 function findField(obj, names, depth = 0, seen = new Set()) {
   if (!obj || typeof obj !== 'object' || depth > 4 || seen.has(obj)) return undefined;
@@ -87,13 +95,26 @@ function classifyNetworkEvent(evt) {
   // otherwise it's left for the raw/unclassified log rather than guessed at.
   if (wager === null || payout === null) return { isCompleteBet: false };
 
+  const resolvedGame = findField(responseJson, FIELD_CANDIDATES.game) || inferGameFromUrl(evt.url) || null;
+  const selectedNumbers = toNumberArray(findField(responseJson, FIELD_CANDIDATES.selected));
+  const resultNumbers = toNumberArray(findField(responseJson, FIELD_CANDIDATES.result));
+
+  // A wager+payout match alone isn't strong enough evidence: non-bet payloads
+  // (rakeback claims, promo credits, balance pushes) can coincidentally have
+  // fields named "amount" and "profit"/"payout". Require a recognized game or
+  // actual number picks/results too, otherwise treat it as unclassified so it
+  // shows up in the dashboard's raw log instead of polluting the bet ledger.
+  if (!resolvedGame && selectedNumbers.length === 0 && resultNumbers.length === 0) {
+    return { isCompleteBet: false };
+  }
+
   const balanceAfter = toNumber(findField(responseJson, FIELD_CANDIDATES.balance));
   const id = findField(responseJson, FIELD_CANDIDATES.id);
 
   return {
     isCompleteBet: true,
     betId: id ? String(id) : `synth_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    game: findField(responseJson, FIELD_CANDIDATES.game) || inferGameFromUrl(evt.url) || 'unknown',
+    game: resolvedGame || 'unknown',
     riskMode: findField(responseJson, FIELD_CANDIDATES.risk) ?? null,
     selectedNumbers: toNumberArray(findField(responseJson, FIELD_CANDIDATES.selected)),
     resultNumbers: toNumberArray(findField(responseJson, FIELD_CANDIDATES.result)),
@@ -122,6 +143,23 @@ function flushPendingBet() {
     clearTimeout(pendingTimer);
     pendingTimer = null;
   }
+  if (quietTimer) {
+    clearTimeout(quietTimer);
+    quietTimer = null;
+  }
+}
+
+function scheduleQuietCheck() {
+  if (quietTimer) clearTimeout(quietTimer);
+  const bet = pendingBet;
+  quietTimer = setTimeout(() => {
+    // Guard against a stale timer firing after `bet` was already flushed
+    // and pendingBet reassigned to a different, newer bet.
+    if (pendingBet === bet && bet.animationStartedAt !== null && bet.animationFinishedAt === null) {
+      bet.animationFinishedAt = lastMutationAt;
+      flushPendingBet();
+    }
+  }, ANIMATION_QUIET_PERIOD_MS);
 }
 
 function schedulePendingFlush() {
@@ -158,26 +196,34 @@ window.addEventListener('ubet:network', (event) => handleNetworkEvent(event.deta
 // --- DOM animation timing ---
 const observer = new MutationObserver((mutations) => {
   if (!pendingBet) return;
+
   for (const m of mutations) {
     if (m.type !== 'attributes' || m.attributeName !== 'class') continue;
     const target = m.target;
     if (!(target instanceof Element)) continue;
-    const classes = target.className && typeof target.className === 'string' ? target.className : '';
+    const classes = typeof target.className === 'string' ? target.className : '';
 
     if (pendingBet.animationStartedAt === null && ANIMATION_START_CLASS_RE.test(classes)) {
       pendingBet.animationStartedAt = Date.now();
-      continue;
-    }
-    if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && ANIMATION_END_CLASS_RE.test(classes)) {
+    } else if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && ANIMATION_END_CLASS_RE.test(classes)) {
       pendingBet.animationFinishedAt = Date.now();
       flushPendingBet();
+      return;
     }
+  }
+
+  // No recognized "finished" class this batch. As long as the reveal has
+  // started, keep pushing the quiet-period fallback out on every mutation;
+  // it fires once the DOM actually stops changing.
+  if (pendingBet && pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null) {
+    lastMutationAt = Date.now();
+    scheduleQuietCheck();
   }
 });
 
 function startObserving() {
   if (document.body) {
-    observer.observe(document.body, { subtree: true, attributes: true, attributeFilter: ['class'] });
+    observer.observe(document.body, { subtree: true, attributes: true, childList: true, characterData: true });
   } else {
     document.addEventListener('DOMContentLoaded', startObserving, { once: true });
   }

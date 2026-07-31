@@ -51,6 +51,10 @@ export function computeStats(records) {
   const sorted = [...records].sort((a, b) => a.submittedAt - b.submittedAt);
   const totalWagered = sorted.reduce((s, r) => s + (r.wager || 0), 0);
   const totalPayout = sorted.reduce((s, r) => s + (r.payout || 0), 0);
+  // Sum the same per-record net values the ledger/CSV/dashboard display,
+  // rather than recomputing totalPayout - totalWagered independently — those
+  // two paths round differently and drift apart over many small bets.
+  const totalNet = sorted.reduce((s, r) => s + (r.net || 0), 0);
 
   const latencies = sorted.map((r) => r.serverLatencyMs).filter((v) => v != null);
   const animations = sorted.map((r) => r.animationDurationMs).filter((v) => v != null);
@@ -86,7 +90,7 @@ export function computeStats(records) {
     betCount: sorted.length,
     totalWagered: round2(totalWagered),
     totalPayout: round2(totalPayout),
-    totalNet: round2(totalPayout - totalWagered),
+    totalNet: round2(totalNet),
     overallRtpPercent: totalWagered > 0 ? round2((totalPayout / totalWagered) * 100) : null,
     rollingRtpWindows,
     serverLatencyMs: { mean: round2(mean(latencies)), min: latencies.length ? Math.min(...latencies) : null, max: latencies.length ? Math.max(...latencies) : null, sampleCount: latencies.length },

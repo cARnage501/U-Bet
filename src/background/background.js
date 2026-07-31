@@ -21,6 +21,29 @@ async function isCaptureEnabled() {
   return stored.captureEnabled !== false; // default on
 }
 
+// chrome.runtime.onMessage can dispatch overlapping 'UBET_CAPTURE_EVENT'
+// messages concurrently. Reading "the last record" and appending the next
+// one is a read-modify-write on the chain tip, so it must never run for two
+// events at once — otherwise two records can both read the same "last"
+// record and both chain off it, corrupting the hash chain. Every
+// chain-mutating append is queued onto this promise to force strict
+// sequential execution regardless of message arrival timing.
+let chainQueue = Promise.resolve();
+
+function appendBetRecord(normalized) {
+  const result = chainQueue.then(async () => {
+    const last = await db.getLastBetRecord();
+    const previousRecordHash = last ? await sha256Hex(canonicalize(last)) : null;
+    const record = await buildRecord(normalized, previousRecordHash);
+    await db.addBetRecord(record);
+    return record;
+  });
+  // Keep the queue alive even if this append fails, so one bad record
+  // doesn't wedge every append after it.
+  chainQueue = result.catch(() => {});
+  return result;
+}
+
 async function handleCaptureEvent(normalized) {
   if (!(await isCaptureEnabled())) return { stored: false, reason: 'capture disabled' };
 
@@ -39,10 +62,7 @@ async function handleCaptureEvent(normalized) {
     return { stored: true, classified: false };
   }
 
-  const last = await db.getLastBetRecord();
-  const previousRecordHash = last ? await sha256Hex(canonicalize(last)) : null;
-  const record = await buildRecord(normalized, previousRecordHash);
-  await db.addBetRecord(record);
+  const record = await appendBetRecord(normalized);
   return { stored: true, classified: true, betId: record.betId };
 }
 
