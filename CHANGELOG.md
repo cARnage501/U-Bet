@@ -8,6 +8,27 @@ Every export also carries an `extensionVersion` field — check it before
 treating an anomaly in old capture data as real signal, since it may be a bug
 that a later version fixed.
 
+## 0.5.0
+
+The dashboard now refreshes itself every second, so a live session can be
+watched without clicking Refresh. A "live" indicator sits next to the button.
+
+Naive polling would have been noticeably worse than clicking, so the loop
+avoids the obvious costs:
+
+- Chain verification re-hashes every record, so it runs only when the bet count
+  changes rather than on every tick. At a few thousand records, hashing the
+  whole ledger once a second would dominate the CPU.
+- Rendering is skipped entirely when neither store has grown, which is the
+  common case between bets — this avoids redrawing seven canvases every second
+  for no reason.
+- The raw event table restores its scroll position after rebuilding, so the
+  view no longer jumps while the log is being read.
+- Polling pauses while the tab is hidden and catches up on return.
+- Overlapping ticks are collapsed: callers receive the in-flight promise, so an
+  export clicked mid-tick resolves against real data rather than a stale
+  snapshot or, on first load, an empty set.
+
 ## 0.4.0
 
 Inspected the live logged-in page over CDP and found that the animation

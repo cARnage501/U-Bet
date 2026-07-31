@@ -55,6 +55,44 @@ h1 .version {
   font-size: 12px;
 }
 
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #8296a7;
+  user-select: none;
+}
+
+.live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2dd4bf;
+  animation: livePulse 2s ease-in-out infinite;
+}
+
+/* Held steady rather than pulsing when the tab is hidden, matching the fact
+   that polling is paused there. */
+.live.paused {
+  color: #566573;
+}
+
+.live.paused::before {
+  background: #566573;
+  animation: none;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live::before { animation: none; }
+}
+
 button {
   background: #1f2c38;
   color: #e6edf3;
