@@ -1,0 +1,106 @@
+* { box-sizing: border-box; }
+
+body {
+  width: 280px;
+  margin: 0;
+  padding: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f1720;
+  color: #e6edf3;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+h1 {
+  font-size: 15px;
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9fb1c1;
+}
+
+.stats {
+  display: flex;
+  justify-content: space-between;
+  background: #16212c;
+  border-radius: 8px;
+  padding: 10px 8px;
+  margin-bottom: 12px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.stat .value {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.stat .label {
+  font-size: 10px;
+  color: #8296a7;
+  margin-top: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.export-row {
+  display: flex;
+  gap: 6px;
+}
+
+button {
+  flex: 1;
+  background: #1f2c38;
+  color: #e6edf3;
+  border: 1px solid #2c3b48;
+  border-radius: 6px;
+  padding: 8px 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #263644;
+}
+
+button.secondary {
+  background: transparent;
+}
+
+#openDashboard {
+  background: #2dd4bf;
+  color: #0b1116;
+  font-weight: 600;
+  border: none;
+}
+
+#openDashboard:hover {
+  background: #26bfab;
+}
+
+footer {
+  margin-top: 10px;
+  font-size: 10px;
+  color: #6b7f8f;
+  text-align: center;
+}

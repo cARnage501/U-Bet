@@ -1,0 +1,72 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>U-Bet Dashboard</title>
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body>
+    <header>
+      <h1>U-Bet Telemetry</h1>
+      <div class="header-controls">
+        <label>
+          withdrawal threshold
+          <input type="number" id="withdrawalThreshold" placeholder="e.g. 100" />
+        </label>
+        <button id="refresh">Refresh</button>
+        <button id="exportJson">Export JSON</button>
+        <button id="exportCsv">Export CSV</button>
+        <button id="exportLlmMd">Export LLM (.md)</button>
+        <button id="exportLlmJson">Export LLM (.json)</button>
+        <button id="clearAll" class="danger">Wipe local data</button>
+      </div>
+    </header>
+
+    <section class="summary" id="summary"></section>
+
+    <section class="charts">
+      <div class="chart-card">
+        <h2>Cumulative net</h2>
+        <canvas id="chartCumulativeNet"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Rolling RTP (25 / 100 / 500 / 1000 bets)</h2>
+        <canvas id="chartRollingRtp"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Wager vs. net</h2>
+        <canvas id="chartWagerNet"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Balance before bet vs. animation duration</h2>
+        <canvas id="chartBalanceAnimation"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Server latency vs. animation duration</h2>
+        <canvas id="chartLatencyAnimation"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Net by game</h2>
+        <canvas id="chartByGame"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Net by risk mode</h2>
+        <canvas id="chartByRisk"></canvas>
+      </div>
+    </section>
+
+    <section class="raw-log">
+      <h2>Unclassified network events <span class="hint">(calibration aid — see README)</span></h2>
+      <div class="table-wrap">
+        <table id="rawTable">
+          <thead>
+            <tr><th>captured</th><th>channel</th><th>url</th><th>body preview</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <script type="module" src="dashboard.js"></script>
+  </body>
+</html>

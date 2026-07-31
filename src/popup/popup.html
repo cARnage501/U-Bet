@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>U-Bet Telemetry</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>U-Bet</h1>
+      <label class="toggle">
+        <input type="checkbox" id="captureToggle" />
+        <span>Capture</span>
+      </label>
+    </header>
+
+    <section class="stats" id="stats">
+      <div class="stat"><span class="value" id="statBets">–</span><span class="label">bets logged</span></div>
+      <div class="stat"><span class="value" id="statNet">–</span><span class="label">net</span></div>
+      <div class="stat"><span class="value" id="statRtp">–</span><span class="label">RTP</span></div>
+    </section>
+
+    <section class="actions">
+      <button id="openDashboard">Open dashboard</button>
+      <div class="export-row">
+        <button id="exportJson">Export JSON</button>
+        <button id="exportCsv">Export CSV</button>
+        <button id="exportLlm">Export for LLM</button>
+      </div>
+      <button id="copyLlm" class="secondary">Copy LLM export to clipboard</button>
+    </section>
+
+    <footer>
+      <span id="chainStatus"></span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

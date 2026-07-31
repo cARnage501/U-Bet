@@ -1,0 +1,169 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0b1116;
+  color: #e6edf3;
+  padding: 20px 28px 60px;
+}
+
+header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.header-controls label {
+  display: flex;
+  flex-direction: column;
+  font-size: 10px;
+  color: #8296a7;
+  gap: 2px;
+}
+
+.header-controls input {
+  background: #16212c;
+  border: 1px solid #2c3b48;
+  color: #e6edf3;
+  border-radius: 6px;
+  padding: 5px 8px;
+  width: 90px;
+  font-size: 12px;
+}
+
+button {
+  background: #1f2c38;
+  color: #e6edf3;
+  border: 1px solid #2c3b48;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #263644;
+}
+
+button.danger {
+  background: transparent;
+  border-color: #6b2d2d;
+  color: #f97066;
+}
+
+button.danger:hover {
+  background: #2a1414;
+}
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.summary .stat {
+  background: #121a22;
+  border: 1px solid #1c2733;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.summary .stat .value {
+  font-size: 20px;
+  font-weight: 600;
+  display: block;
+}
+
+.summary .stat .label {
+  font-size: 11px;
+  color: #8296a7;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 16px;
+}
+
+.chart-card {
+  background: #121a22;
+  border: 1px solid #1c2733;
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.chart-card h2 {
+  font-size: 12px;
+  font-weight: 500;
+  color: #9fb1c1;
+  margin: 0 0 10px;
+}
+
+.chart-card canvas {
+  width: 100%;
+  height: 200px;
+  display: block;
+}
+
+.raw-log {
+  margin-top: 28px;
+}
+
+.raw-log h2 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #9fb1c1;
+}
+
+.raw-log .hint {
+  color: #566573;
+  font-weight: 400;
+}
+
+.table-wrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid #1c2733;
+  border-radius: 10px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+th, td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid #1c2733;
+  white-space: nowrap;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: #121a22;
+  color: #8296a7;
+  font-weight: 500;
+}
