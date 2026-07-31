@@ -28,6 +28,7 @@ const DATA_DICTIONARY = {
   animationFinishedAt: 'Unix ms timestamp when the result animation was observed finishing.',
   serverLatencyMs: 'serverResultAt - submittedAt: pure network/server time.',
   animationDurationMs: 'animationFinishedAt - animationStartedAt: client-side reveal time.',
+  animationTimingQuality: 'How animationFinishedAt was determined. "class-matched" and "quiet-period" are measured. "superseded" is a bounded estimate — the next bet arrived before this reveal finished, so the last observed DOM mutation was used as the end bound; treat as an upper-bound-ish approximation, not a measurement. "interrupted"/"timeout" mean no end was observed and animationDurationMs is null.',
   rawEventHash: 'SHA-256 of the canonicalized raw captured network event backing this record.',
   previousRecordHash: 'SHA-256 of the prior record in the ledger (hash chain; null for the first record).',
 };
@@ -58,7 +59,25 @@ export function computeStats(records) {
   const totalNet = sorted.reduce((s, r) => s + (r.net || 0), 0);
 
   const latencies = sorted.map((r) => r.serverLatencyMs).filter((v) => v != null);
-  const animations = sorted.map((r) => r.animationDurationMs).filter((v) => v != null);
+
+  // 'superseded' durations are bounded estimates from a bet whose reveal was
+  // cut short by the next bet, not clean measurements. Headline animation
+  // stats use measured values only; estimates are reported separately so a
+  // fast-play stretch can't quietly drag the mean around.
+  const MEASURED_QUALITY = new Set(['class-matched', 'quiet-period']);
+  const withDuration = sorted.filter((r) => r.animationDurationMs != null);
+  const animations = withDuration
+    .filter((r) => MEASURED_QUALITY.has(r.animationTimingQuality))
+    .map((r) => r.animationDurationMs);
+  const estimatedAnimations = withDuration
+    .filter((r) => !MEASURED_QUALITY.has(r.animationTimingQuality))
+    .map((r) => r.animationDurationMs);
+
+  const animationTimingQuality = {};
+  for (const r of sorted) {
+    const q = r.animationTimingQuality || 'unresolved';
+    animationTimingQuality[q] = (animationTimingQuality[q] || 0) + 1;
+  }
 
   const byGame = {};
   const byRisk = {};
@@ -96,6 +115,8 @@ export function computeStats(records) {
     rollingRtpWindows,
     serverLatencyMs: { mean: round2(mean(latencies)), min: latencies.length ? Math.min(...latencies) : null, max: latencies.length ? Math.max(...latencies) : null, sampleCount: latencies.length },
     animationDurationMs: { mean: round2(mean(animations)), min: animations.length ? Math.min(...animations) : null, max: animations.length ? Math.max(...animations) : null, sampleCount: animations.length },
+    animationDurationMsEstimated: { mean: round2(mean(estimatedAnimations)), min: estimatedAnimations.length ? Math.min(...estimatedAnimations) : null, max: estimatedAnimations.length ? Math.max(...estimatedAnimations) : null, sampleCount: estimatedAnimations.length },
+    animationTimingQuality,
     byGame,
     byRisk,
     bySession,

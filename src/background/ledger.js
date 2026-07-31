@@ -56,6 +56,9 @@ export async function buildRecord(normalized, previousRecordHash, seq) {
     animationDurationMs: normalized.animationFinishedAt != null && normalized.animationStartedAt != null
       ? normalized.animationFinishedAt - normalized.animationStartedAt
       : null,
+    // How animationFinishedAt was determined. Kept alongside the duration so
+    // clean measurements and bounded estimates never get pooled by accident.
+    animationTimingQuality: normalized.animationTimingQuality ?? null,
     rawEventHash,
     previousRecordHash: previousRecordHash ?? null,
   };

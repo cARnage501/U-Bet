@@ -21,7 +21,12 @@ function renderSummary(stats, chain) {
     ['Total net', stats.totalNet ?? '–'],
     ['Overall RTP', stats.overallRtpPercent != null ? `${stats.overallRtpPercent}%` : '–'],
     ['Avg server latency', stats.serverLatencyMs.mean != null ? `${stats.serverLatencyMs.mean} ms` : '–'],
-    ['Avg animation duration', stats.animationDurationMs.mean != null ? `${stats.animationDurationMs.mean} ms` : '–'],
+    // Sample count is shown alongside the mean because measured coverage is
+    // partial by nature — a mean over a handful of bets reads very
+    // differently from one over hundreds, and that context is easy to lose.
+    ['Avg animation duration', stats.animationDurationMs.mean != null
+      ? `${stats.animationDurationMs.mean} ms <span class="qualifier">(${stats.animationDurationMs.sampleCount} measured)</span>`
+      : '–'],
     ['Ledger chain', chain.valid ? 'intact' : `broken @${chain.brokenAtIndex}`],
   ];
   const el = document.getElementById('summary');
@@ -29,6 +34,11 @@ function renderSummary(stats, chain) {
     .map(([label, value]) => `<div class="stat"><span class="value">${value}</span><span class="label">${label}</span></div>`)
     .join('');
 }
+
+// Only measured durations belong on the timing scatters — plotting bounded
+// 'superseded' estimates there would put artefacts of fast play into charts
+// meant to show real animation behaviour.
+const MEASURED = new Set(['class-matched', 'quiet-period']);
 
 function renderCharts(records, stats, threshold) {
   const sorted = [...records].sort((a, b) => a.submittedAt - b.submittedAt);
@@ -49,7 +59,7 @@ function renderCharts(records, stats, threshold) {
   renderScatter(document.getElementById('chartWagerNet'), wagerNetPoints, { xLabel: 'wager', yLabel: 'net' });
 
   const balanceAnimPoints = sorted
-    .filter((r) => r.balanceBefore != null && r.animationDurationMs != null)
+    .filter((r) => r.balanceBefore != null && r.animationDurationMs != null && MEASURED.has(r.animationTimingQuality))
     .map((r) => ({ x: r.balanceBefore, y: r.animationDurationMs }));
   renderScatter(document.getElementById('chartBalanceAnimation'), balanceAnimPoints, {
     xLabel: 'balance before',
@@ -59,7 +69,7 @@ function renderCharts(records, stats, threshold) {
   });
 
   const latencyAnimPoints = sorted
-    .filter((r) => r.serverLatencyMs != null && r.animationDurationMs != null)
+    .filter((r) => r.serverLatencyMs != null && r.animationDurationMs != null && MEASURED.has(r.animationTimingQuality))
     .map((r) => ({ x: r.serverLatencyMs, y: r.animationDurationMs }));
   renderScatter(document.getElementById('chartLatencyAnimation'), latencyAnimPoints, { xLabel: 'server latency ms', yLabel: 'animation ms' });
 

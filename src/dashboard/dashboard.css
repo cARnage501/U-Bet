@@ -104,6 +104,12 @@ button.danger:hover {
   color: #8296a7;
 }
 
+.summary .stat .qualifier {
+  font-size: 11px;
+  font-weight: 400;
+  color: #566573;
+}
+
 .charts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));

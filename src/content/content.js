@@ -135,8 +135,11 @@ function sendToBackground(normalized) {
   });
 }
 
-function flushPendingBet() {
+function flushPendingBet(quality) {
   if (!pendingBet) return;
+  if (quality && pendingBet.animationTimingQuality === null) {
+    pendingBet.animationTimingQuality = quality;
+  }
   sendToBackground(pendingBet);
   pendingBet = null;
   if (pendingTimer) {
@@ -157,14 +160,14 @@ function scheduleQuietCheck() {
     // and pendingBet reassigned to a different, newer bet.
     if (pendingBet === bet && bet.animationStartedAt !== null && bet.animationFinishedAt === null) {
       bet.animationFinishedAt = lastMutationAt;
-      flushPendingBet();
+      flushPendingBet('quiet-period');
     }
   }, ANIMATION_QUIET_PERIOD_MS);
 }
 
 function schedulePendingFlush() {
   if (pendingTimer) clearTimeout(pendingTimer);
-  pendingTimer = setTimeout(flushPendingBet, PENDING_BET_TIMEOUT_MS);
+  pendingTimer = setTimeout(() => flushPendingBet('timeout'), PENDING_BET_TIMEOUT_MS);
 }
 
 function handleNetworkEvent(evt) {
@@ -182,12 +185,32 @@ function handleNetworkEvent(evt) {
 
   if (normalized.balanceAfter !== null) lastKnownBalance = normalized.balanceAfter;
 
-  // A new bet arrives while a previous one is still awaiting its animation
-  // timestamps: flush the old one now (with whatever timing it has) rather
-  // than lose or misattribute it.
-  if (pendingBet) flushPendingBet();
+  // A new bet arrives while the previous one is still awaiting its animation
+  // end. Measured against real play, this was losing timing on ~54% of bets:
+  // a full reveal needs roughly server latency + animation + the quiet period
+  // (~2.8s, up to ~3.4s) to resolve, and anything placed faster than that
+  // superseded the pending bet before its quiet timer could fire.
+  //
+  // Visually the new bet's reveal replaces the old one, so the last mutation
+  // observed before this bet arrived bounds when the old animation ended.
+  // That's an estimate, not a clean measurement, so it's tagged as such —
+  // estimates must never silently pool with measured values in the stats.
+  if (pendingBet) {
+    if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && lastMutationAt !== null) {
+      pendingBet.animationFinishedAt = lastMutationAt;
+      flushPendingBet('superseded');
+    } else {
+      flushPendingBet('interrupted');
+    }
+  }
 
-  pendingBet = { ...normalized, animationStartedAt: null, animationFinishedAt: null };
+  lastMutationAt = null;
+  pendingBet = {
+    ...normalized,
+    animationStartedAt: null,
+    animationFinishedAt: null,
+    animationTimingQuality: null,
+  };
   schedulePendingFlush();
 }
 
@@ -207,7 +230,7 @@ const observer = new MutationObserver((mutations) => {
       pendingBet.animationStartedAt = Date.now();
     } else if (pendingBet.animationStartedAt !== null && pendingBet.animationFinishedAt === null && ANIMATION_END_CLASS_RE.test(classes)) {
       pendingBet.animationFinishedAt = Date.now();
-      flushPendingBet();
+      flushPendingBet('class-matched');
       return;
     }
   }

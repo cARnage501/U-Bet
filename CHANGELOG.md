@@ -8,6 +8,34 @@ Every export also carries an `extensionVersion` field — check it before
 treating an anomaly in old capture data as real signal, since it may be a bug
 that a later version fixed.
 
+## 0.3.0
+
+Verified 0.2.0 against a live 85-bet session: ledger chain read intact, no
+`unknown` game or `unspecified` risk records, and animation duration captured
+for the first time (mean 1939.85 ms). All four 0.2.0 fixes confirmed working.
+
+That capture also exposed the next defect. Animation duration resolved for only
+39 of 85 bets, and the loss was not random — every bet followed by another
+within ~2.7 s lost its timing. A full reveal needs about server latency +
+animation + the quiet period to resolve (~2.8 s typical, ~3.4 s worst case), and
+a new bet superseded the pending one before its quiet timer could fire.
+
+- Superseded bets are now closed out using the last observed DOM mutation as
+  the animation end bound, rather than discarded.
+- Added `animationTimingQuality` per record: `class-matched` and `quiet-period`
+  are measurements; `superseded` is a bounded estimate; `interrupted` and
+  `timeout` mean no end was observed and duration stays null.
+- Headline animation stats now use measured values only. Estimates are reported
+  separately as `animationDurationMsEstimated`, with a full count breakdown in
+  `animationTimingQuality`, so a fast-play stretch can't drag the mean around.
+- The dashboard's timing scatters plot measured durations only, and the summary
+  tile shows the measured sample count next to the mean.
+
+Known gaps: balance capture still returns null. `availableBalances.amount` was
+spotted in the websocket stream and is the likely source, but it appears to
+carry a delta rather than an absolute balance and needs a full payload sample
+before it can be mapped safely.
+
 ## 0.2.0
 
 Surfaced the running version in the popup footer, dashboard header, and all
