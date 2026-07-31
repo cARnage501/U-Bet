@@ -112,6 +112,11 @@ async function refresh() {
   return { records, stats };
 }
 
+// Surfaced so the build actually running in the browser can be compared at a
+// glance against what's checked out — a stale loaded extension otherwise looks
+// identical to a fresh one.
+document.getElementById('versionLabel').textContent = `v${chrome.runtime.getManifest().version}`;
+
 document.getElementById('refresh').addEventListener('click', refresh);
 
 document.getElementById('exportJson').addEventListener('click', async () => {

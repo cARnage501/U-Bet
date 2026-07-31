@@ -122,10 +122,23 @@ export function toCSV(records) {
   return lines.join('\n');
 }
 
+// Which build produced an export. Stamped into every export so a capture can
+// always be traced back to the extension version that recorded it — important
+// while capture heuristics are still being calibrated and a given quirk may be
+// a fixed-in-a-later-version bug rather than real signal.
+function extensionVersion() {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return 'unknown';
+  }
+}
+
 export function buildRawJSONExport(records) {
   return {
     exportKind: 'ubet-raw-ledger',
     schemaVersion: 1,
+    extensionVersion: extensionVersion(),
     exportedAt: new Date().toISOString(),
     recordCount: records.length,
     records,
@@ -140,6 +153,7 @@ export function buildLLMExport(records, stats, options = {}) {
   return {
     exportKind: 'ubet-llm-analysis-export',
     schemaVersion: 1,
+    extensionVersion: extensionVersion(),
     exportedAt: new Date().toISOString(),
     purpose: 'Bet telemetry captured read-only from the player\'s own stake.us sessions, for timing/fairness/variance analysis.',
     dataDictionary: DATA_DICTIONARY,
@@ -164,6 +178,8 @@ export function buildLLMMarkdown(records, stats, options = {}) {
   return `# U-Bet Telemetry Export
 
 Read-only bet telemetry captured from the player's own stake.us sessions. No requests were modified to produce this data.
+
+Captured by U-Bet extension \`v${exportObj.extensionVersion}\` — capture heuristics are still being calibrated, so check this version before treating any anomaly as real signal.
 
 ## Data dictionary
 

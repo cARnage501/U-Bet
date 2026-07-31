@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "U-Bet Telemetry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Read-only capture, ledger, and dashboard for your own stake.us bet history. Records timing, wagers, and outcomes locally — never modifies requests.",
   "permissions": ["storage", "unlimitedStorage"],
   "host_permissions": [

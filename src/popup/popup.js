@@ -25,6 +25,13 @@ function formatMoney(n) {
   return `${sign}${n.toFixed(2)}`;
 }
 
+// Surfaced so the build actually running in the browser can be compared at a
+// glance against what's checked out — a stale loaded extension otherwise looks
+// identical to a fresh one.
+function initVersionLabel() {
+  document.getElementById('versionLabel').textContent = `v${chrome.runtime.getManifest().version}`;
+}
+
 async function initCaptureToggle() {
   const toggle = document.getElementById('captureToggle');
   toggle.checked = await sendMessage({ type: 'UBET_GET_CAPTURE_ENABLED' });
@@ -61,5 +68,6 @@ document.getElementById('copyLlm').addEventListener('click', async () => {
   setTimeout(() => (btn.textContent = original), 1200);
 });
 
+initVersionLabel();
 initCaptureToggle();
 loadStats();
